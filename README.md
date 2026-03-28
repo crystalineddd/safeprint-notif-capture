@@ -1,131 +1,124 @@
-# GCash Android Notification Capture (Flutter + Firebase)
+# SafePrint GCash Android Notification Capture
 
-This app listens to Android notifications and captures GCash messages in this pattern:
+SafePrint is a Flutter Android app that listens to notifications and captures GCash payment messages.
 
-You received [amount] from [name] [number].
+It displays payment history in-app and writes records to Firebase Firestore.
 
-It extracts and saves:
-- timestamp
-- amount
-- number
+## Features
 
-Records are also written to Firebase Firestore in the collection `gcash_notifications`.
+- Captures GCash-related notifications from Android Notification Listener
+- Parses payment amount and contact number
+- Preserves masked sender name format from notifications (for example: `CR*******E D.`)
+- Shows payment history in expandable rows
+- Stores captured records in Firestore collection `gcash_notifications`
 
-## 1. Prerequisites (from scratch)
+## Tech Stack
 
-Install these first:
+- Flutter (Android)
+- Kotlin (native notification listener)
+- Firebase Core + Cloud Firestore
+
+## Prerequisites
+
 - Flutter SDK
-- Android Studio (with Android SDK + platform tools)
-- Java 17 (recommended by recent Android Gradle Plugin)
-- A real Android phone with GCash installed (notification listeners are best tested on real devices)
+- Android Studio (Android SDK + platform-tools)
+- Java 17+
+- Physical Android phone (recommended for notification-listener testing)
 
-Verify Flutter:
+Verify setup:
 
 ```bash
 flutter doctor
 ```
 
-## 2. Create the project (from scratch)
-
-If you are starting from an empty folder:
-
-```bash
-flutter create --project-name notif_capture .
-```
-
-This generated the baseline Flutter files in this folder.
-
-## 3. Firebase setup (required)
+## Firebase Setup
 
 1. Create a Firebase project at https://console.firebase.google.com
-2. Add an Android app with package name:
-	 - `com.example.notif_capture`
-3. Download `google-services.json`.
-4. Place the file here:
-	 - `android/app/google-services.json`
-5. In Firebase Console, enable Firestore Database.
-6. Start with test mode for initial testing (then lock down rules later).
+2. Add Android app package:
+   - `com.safeprint.app`
+3. Download `google-services.json`
+4. Place it at:
+   - `android/app/google-services.json`
+5. Enable Firestore Database
+6. For initial testing, you can start with test rules, then lock down later
 
-## 4. Files added/edited in this project
-
-- `lib/main.dart`
-	- Flutter UI
-	- Native bridge (MethodChannel/EventChannel)
-	- Firebase initialization and Firestore write
-- `pubspec.yaml`
-	- Added `firebase_core` and `cloud_firestore`
-- `android/app/src/main/kotlin/com/example/notif_capture/MainActivity.kt`
-	- Configures channels between Android and Flutter
-- `android/app/src/main/kotlin/com/example/notif_capture/NotificationCaptureService.kt`
-	- Android NotificationListenerService
-	- GCash parsing logic
-	- Streams parsed payload to Flutter
-- `android/app/src/main/AndroidManifest.xml`
-	- Registers notification listener service + internet permission
-- `android/settings.gradle.kts`
-	- Adds Google services plugin version
-- `android/app/build.gradle.kts`
-	- Applies `com.google.gms.google-services`
-
-## 5. Install dependencies
-
-Run in project root:
+## Install and Run
 
 ```bash
 flutter pub get
-```
-
-## 6. Run the app
-
-```bash
 flutter run
 ```
 
-## 7. Grant notification listener access (important)
+## Grant Notification Access
 
 After app opens:
-1. Tap `Open Notification Access Settings`
-2. Find this app in the list and enable notification access
-3. Return to app
-4. Tap `Refresh Access Status`
 
-Without this access, no notification can be captured.
+1. Tap `Open Access Settings`
+2. Enable notification access for SafePrint
+3. Return to the app
 
-## 8. Test with GCash notification
+If capture is not working after updates/reinstall:
 
-When a GCash notification arrives with text similar to:
+1. Toggle notification access OFF then ON
+2. Force close and reopen SafePrint
+3. Disable battery optimization for SafePrint (important on some devices)
 
-You received PHP 1,000.00 from Juan Dela Cruz 09171234567.
+## Expected Notification Pattern
 
-The app captures and displays:
-- amount (example: `PHP 1,000.00`)
-- number (example: `09171234567`)
-- timestamp (notification post time)
+Typical supported text style:
 
-Then it writes to Firestore collection `gcash_notifications`.
+`You have received PHP 1.00 of Gcash from CR*******E D. 09XXXXXXXXX`
 
-## 9. Firestore document structure
+The parser is tolerant and still stores raw text when full parse is not possible.
 
-Each document written by the app includes:
-- `timestamp` (Firestore Timestamp)
-- `timestampEpochMs` (number)
+## Firestore Output
+
+Collection name:
+
+- `gcash_notifications`
+
+Each document currently stores:
+
 - `amount` (string)
 - `number` (string)
 - `rawText` (string)
-- `packageName` (string)
 - `capturedAt` (server timestamp)
 
-## 10. Notes and limits
+## Project Structure (Key Files)
 
-- Android-only capture flow is implemented.
-- Parsing is pattern-based and expects the `You received ... from ... [number].` style.
-- If GCash changes the notification format, update regex in:
-	- `android/app/src/main/kotlin/com/example/notif_capture/NotificationCaptureService.kt`
-- If your actual GCash package differs, update package matching in the same file.
+- `lib/main.dart`
+  - UI (SafePrint Payments)
+  - MethodChannel/EventChannel bridge
+  - Firebase initialization and Firestore writes
+- `android/app/src/main/kotlin/com/safeprint/app/MainActivity.kt`
+  - Android/Flutter bridge setup
+- `android/app/src/main/kotlin/com/safeprint/app/NotificationCaptureService.kt`
+  - Notification listener service
+  - Parsing + payload publish to Flutter
+- `android/app/src/main/AndroidManifest.xml`
+  - Notification listener service declaration
+- `android/app/build.gradle.kts`
+  - Android config and Google Services plugin
+- `android/settings.gradle.kts`
+  - Plugin management
 
-## 11. Build release later
+## Security Notes for Repository
 
-Before production:
-- set your own `applicationId` in `android/app/build.gradle.kts`
-- register that package in Firebase and download a matching `google-services.json`
-- configure signing for release
+Do not commit Firebase config or signing secrets.
+
+Already ignored in `.gitignore`:
+
+- `android/app/google-services.json`
+- `android/key.properties`
+- `**/*.jks`
+- `**/*.keystore`
+- `local.properties`
+
+## Release Notes
+
+Before publishing to Play Store:
+
+1. Use your final `applicationId` in `android/app/build.gradle.kts`
+2. Register the same package in Firebase
+3. Use matching `google-services.json`
+4. Configure release signing
