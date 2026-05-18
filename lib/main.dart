@@ -63,7 +63,8 @@ class NotificationCaptureRecord {
   }
 
   factory NotificationCaptureRecord.fromMap(Map<dynamic, dynamic> map) {
-    final millis = (map['timestampEpochMs'] as num?)?.toInt() ??
+    final millis =
+        (map['timestampEpochMs'] as num?)?.toInt() ??
         DateTime.now().millisecondsSinceEpoch;
 
     return NotificationCaptureRecord(
@@ -82,15 +83,17 @@ class NotificationCaptureRecord {
 class NotificationBridge {
   NotificationBridge._();
 
-  static const MethodChannel _methodChannel =
-      MethodChannel('gcash_capture/methods');
-  static const EventChannel _eventChannel =
-      EventChannel('gcash_capture/events');
+  static const MethodChannel _methodChannel = MethodChannel(
+    'gcash_capture/methods',
+  );
+  static const EventChannel _eventChannel = EventChannel(
+    'gcash_capture/events',
+  );
 
   static Stream<NotificationCaptureRecord> stream() {
-    return _eventChannel
-        .receiveBroadcastStream()
-        .map((event) => NotificationCaptureRecord.fromMap(event as Map));
+    return _eventChannel.receiveBroadcastStream().map(
+      (event) => NotificationCaptureRecord.fromMap(event as Map),
+    );
   }
 
   static Future<void> openNotificationAccessSettings() {
@@ -102,6 +105,24 @@ class NotificationBridge {
       'isNotificationAccessGranted',
     );
     return granted ?? false;
+  }
+
+  static Future<List<NotificationCaptureRecord>>
+  loadSavedNotifications() async {
+    try {
+      final saved = await _methodChannel.invokeMethod<List>(
+        'loadSavedNotifications',
+      );
+      if (saved != null) {
+        return (saved).map((item) {
+          final map = Map<String, dynamic>.from(item as Map);
+          return NotificationCaptureRecord.fromMap(map);
+        }).toList();
+      }
+    } catch (_) {
+      // If method not available yet, return empty
+    }
+    return [];
   }
 }
 
@@ -147,40 +168,67 @@ class CapturePage extends StatefulWidget {
   State<CapturePage> createState() => _CapturePageState();
 }
 
-class _CapturePageState extends State<CapturePage> {
+class _CapturePageState extends State<CapturePage> with WidgetsBindingObserver {
   final List<NotificationCaptureRecord> _captured =
       <NotificationCaptureRecord>[];
   static const double _rowFontSize = 10;
 
   StreamSubscription<NotificationCaptureRecord>? _subscription;
+  bool _hasNotificationAccess = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _init();
   }
 
   Future<void> _init() async {
     await _refreshAccessStatus();
 
-    _subscription = NotificationBridge.stream().listen(
-      (record) async {
+    // Load any notifications that were captured while app was closed
+    final saved = await NotificationBridge.loadSavedNotifications();
+    for (final record in saved.reversed) {
+      if (!_captured.any(
+        (r) =>
+            r.timestamp.millisecondsSinceEpoch ==
+            record.timestamp.millisecondsSinceEpoch,
+      )) {
         setState(() {
           _captured.insert(0, record);
         });
+      }
+    }
 
-        try {
-          await FirebaseCaptureRepository.save(record);
-        } catch (_) {
-          // Keep local capture working even if Firestore write fails.
-        }
-      },
-      onError: (Object error) {},
-    );
+    _subscription = NotificationBridge.stream().listen((record) async {
+      setState(() {
+        _captured.insert(0, record);
+      });
+
+      try {
+        await FirebaseCaptureRepository.save(record);
+      } catch (_) {
+        // Keep local capture working even if Firestore write fails.
+      }
+    }, onError: (Object error) {});
   }
 
   Future<void> _refreshAccessStatus() async {
-    await NotificationBridge.isNotificationAccessGranted();
+    final granted = await NotificationBridge.isNotificationAccessGranted();
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _hasNotificationAccess = granted;
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _refreshAccessStatus();
+    }
   }
 
   String _formatTimestamp(DateTime value) {
@@ -202,6 +250,7 @@ class _CapturePageState extends State<CapturePage> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _subscription?.cancel();
     super.dispose();
   }
@@ -234,6 +283,33 @@ class _CapturePageState extends State<CapturePage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            Container(
+              width: double.infinity,
+              margin: const EdgeInsets.only(bottom: 12),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: _hasNotificationAccess
+                    ? const Color(0xFFEFFAF3)
+                    : const Color(0xFFFFF6E0),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: _hasNotificationAccess
+                      ? const Color(0xFFB7E4C7)
+                      : const Color(0xFFF4C152),
+                ),
+              ),
+              child: Text(
+                _hasNotificationAccess
+                    ? 'Notification access enabled. Waiting for payment alerts.'
+                    : 'Notification access is not enabled yet. Tap Open Access Settings and turn SafePrint on.',
+                style: const TextStyle(
+                  fontSize: 12,
+                  height: 1.3,
+                  color: Color(0xFF1F2937),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
@@ -251,28 +327,25 @@ class _CapturePageState extends State<CapturePage> {
                 ),
                 child: const Text(
                   'Open Access Settings',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 12,
-                  ),
+                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12),
                 ),
               ),
             ),
             const SizedBox(height: 16),
             Expanded(
               child: _captured.isEmpty
-                  ? const Center(
-                      child: Text('No payments yet.'),
-                    )
+                  ? const Center(child: Text('No payments yet.'))
                   : ListView.separated(
                       itemCount: _captured.length,
                       separatorBuilder: (_, _) => const SizedBox(height: 10),
                       itemBuilder: (context, index) {
                         final item = _captured[index];
-                        final amount =
-                            item.amount.isEmpty ? '(not parsed)' : item.amount;
-                        final number =
-                            item.number.isEmpty ? '(not parsed)' : item.number;
+                        final amount = item.amount.isEmpty
+                            ? '(not parsed)'
+                            : item.amount;
+                        final number = item.number.isEmpty
+                            ? '(not parsed)'
+                            : item.number;
 
                         return Container(
                           decoration: BoxDecoration(
