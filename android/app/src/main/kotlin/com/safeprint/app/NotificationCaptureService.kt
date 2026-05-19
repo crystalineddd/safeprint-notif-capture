@@ -219,6 +219,18 @@ class NotificationCaptureService : NotificationListenerService() {
         }
     }
 
+    override fun onListenerDisconnected() {
+        super.onListenerDisconnected()
+        if (!isCaptureEnabled(this)) {
+            stopForegroundCompat()
+            return
+        }
+
+        ensureNotificationChannel()
+        startForeground(notificationId, buildStatusNotification())
+        requestRebind(ComponentName(this, NotificationCaptureService::class.java))
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             stopAction -> {
