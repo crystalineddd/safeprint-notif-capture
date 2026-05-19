@@ -60,6 +60,7 @@ class NotificationCaptureService : NotificationListenerService() {
         private const val notificationId = 4041
         private const val stopAction = "com.safeprint.app.action.STOP_CAPTURE"
         private const val startAction = "com.safeprint.app.action.START_CAPTURE"
+        private const val paymentReceiptMarker = "you have received money in gcash!"
 
         fun isCaptureEnabled(context: Context): Boolean {
             return context.getSharedPreferences(prefsName, Context.MODE_PRIVATE)
@@ -82,7 +83,9 @@ class NotificationCaptureService : NotificationListenerService() {
                     try {
                         val payload = jsonToMap(JSONObject(value))
                         val packageName = payload["packageName"]?.toString().orEmpty()
-                        if (isGcashPackageName(packageName)) {
+                        val rawText = payload["rawText"]?.toString().orEmpty()
+                        val title = payload["title"]?.toString().orEmpty()
+                        if (isValidPaymentReceiptNotification(packageName, title, rawText)) {
                             notifications.add(payload)
                         }
                     } catch (_: Exception) {
@@ -109,7 +112,9 @@ class NotificationCaptureService : NotificationListenerService() {
 
         private fun uploadNotificationToFirebase(context: Context, payload: Map<String, Any>) {
             val packageName = payload["packageName"]?.toString().orEmpty()
-            if (!isGcashPackageName(packageName)) {
+            val rawText = payload["rawText"]?.toString().orEmpty()
+            val title = payload["title"]?.toString().orEmpty()
+            if (!isValidPaymentReceiptNotification(packageName, title, rawText)) {
                 return
             }
 
@@ -196,6 +201,22 @@ class NotificationCaptureService : NotificationListenerService() {
         private fun isGcashPackageName(packageName: String): Boolean {
             return packageName == "com.globe.gcash.android" ||
                 packageName == "com.globe.gcash"
+        }
+
+        private fun containsPaymentReceiptMarker(text: String): Boolean {
+            return text.contains(paymentReceiptMarker, ignoreCase = true)
+        }
+
+        private fun isValidPaymentReceiptNotification(
+            packageName: String,
+            title: String,
+            rawText: String
+        ): Boolean {
+            if (!isGcashPackageName(packageName)) {
+                return false
+            }
+
+            return containsPaymentReceiptMarker(rawText) || containsPaymentReceiptMarker(title)
         }
     }
 
@@ -300,14 +321,13 @@ class NotificationCaptureService : NotificationListenerService() {
             .joinToString(" | ")
             .trim()
 
-        val sourceLooksLikeGcash = isGcashPackage(packageName)
-        if (!sourceLooksLikeGcash) {
-            return
-        }
-
         val rawText = mergedText
 
         if (rawText.isBlank()) {
+            return
+        }
+
+        if (!isValidPaymentReceiptNotification(packageName, title, rawText)) {
             return
         }
 
@@ -322,7 +342,7 @@ class NotificationCaptureService : NotificationListenerService() {
                 "amount" to "",
                 "number" to "",
                 "isParsed" to false,
-                "isGcashSource" to sourceLooksLikeGcash,
+                "isGcashSource" to true,
                 "timestampEpochMs" to sbn.postTime,
                 "parseCategory" to parseResult.category,
                 "parseHint" to parseResult.hint
@@ -341,7 +361,7 @@ class NotificationCaptureService : NotificationListenerService() {
                 "amount" to parsed.amount,
                 "number" to parsed.number,
                 "isParsed" to true,
-                "isGcashSource" to sourceLooksLikeGcash,
+                "isGcashSource" to true,
                 "timestampEpochMs" to sbn.postTime + index,
                 "parseCategory" to parseResult.category,
                 "parseHint" to parseResult.hint
