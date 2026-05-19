@@ -5,6 +5,11 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+dependencies {
+    implementation(platform("com.google.firebase:firebase-bom:33.13.0"))
+    implementation("com.google.firebase:firebase-firestore-ktx")
+}
+
 android {
     namespace = "com.safeprint.app"
     compileSdk = flutter.compileSdkVersion

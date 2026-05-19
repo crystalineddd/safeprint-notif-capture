@@ -3,6 +3,7 @@
 SafePrint is a Flutter Android app that listens to notifications and captures GCash payment messages.
 
 It displays payment history in-app and writes records to Firebase Firestore.
+The Android notification listener does the actual capture, so once notification access is granted the app can keep collecting GCash notifications even when the UI is closed.
 
 ## Features
 
@@ -56,6 +57,8 @@ After app opens:
 1. Tap `Open Access Settings`
 2. Enable notification access for SafePrint
 3. Return to the app
+
+Once access is granted, the notification listener can continue running in the background. Like any Android notification listener, it can still be stopped by force-stopping the app, uninstalling it, or some OEM battery restrictions.
 
 If capture is not working after updates/reinstall:
 

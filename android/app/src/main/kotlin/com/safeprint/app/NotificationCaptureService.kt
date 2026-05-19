@@ -2,8 +2,14 @@ package com.safeprint.app
 
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
+import android.util.Log
+import com.google.firebase.FirebaseApp
+import com.google.firebase.firestore.FieldValue
+import com.google.firebase.firestore.FirebaseFirestore
 import io.flutter.plugin.common.EventChannel
 import java.util.ArrayDeque
+
+private const val TAG = "NotificationCaptureSvc"
 
 object NotificationEventStreamHandler : EventChannel.StreamHandler {
     private var sink: EventChannel.EventSink? = null
@@ -47,8 +53,15 @@ class NotificationCaptureService : NotificationListenerService() {
         val title = extras?.getCharSequence("android.title")?.toString().orEmpty()
         val subText = extras?.getCharSequence("android.subText")?.toString().orEmpty()
         val tickerText = sbn.notification.tickerText?.toString().orEmpty()
+        val textLines = extras?.getCharSequenceArray("android.textLines")
+            ?.map { it?.toString().orEmpty().trim() }
+            ?.filter { it.isNotBlank() }
+            .orEmpty()
 
-        val mergedText = listOf(title, bigText, text, subText, tickerText)
+        val mergedText = buildList {
+            addAll(listOf(title, bigText, text, subText, tickerText))
+            addAll(textLines)
+        }
             .map { it.trim() }
             .filter { it.isNotBlank() }
             .distinctBy { it.lowercase() }
@@ -81,6 +94,31 @@ class NotificationCaptureService : NotificationListenerService() {
         )
 
         NotificationEventStreamHandler.publish(payload)
+        persistNotification(payload)
+    }
+
+    private fun persistNotification(payload: Map<String, Any>) {
+        try {
+            if (FirebaseApp.getApps(this).isEmpty()) {
+                FirebaseApp.initializeApp(this)
+            }
+
+            FirebaseFirestore.getInstance()
+                .collection("gcash_notifications")
+                .add(
+                    mapOf(
+                        "amount" to (payload["amount"] ?: ""),
+                        "number" to (payload["number"] ?: ""),
+                        "rawText" to (payload["rawText"] ?: ""),
+                        "capturedAt" to FieldValue.serverTimestamp(),
+                    )
+                )
+                .addOnFailureListener { error ->
+                    Log.e(TAG, "Failed to store notification", error)
+                }
+        } catch (error: Exception) {
+            Log.e(TAG, "Unable to initialize Firebase for notification storage", error)
+        }
     }
 
     private fun isGcashPackage(packageName: String): Boolean {

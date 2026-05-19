@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -8,7 +7,6 @@ import 'package:google_fonts/google_fonts.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp();
 
   runApp(const MyApp());
 }
@@ -105,16 +103,6 @@ class NotificationBridge {
   }
 }
 
-class FirebaseCaptureRepository {
-  FirebaseCaptureRepository._();
-
-  static final FirebaseFirestore _db = FirebaseFirestore.instance;
-
-  static Future<void> save(NotificationCaptureRecord record) async {
-    await _db.collection('gcash_notifications').add(record.toFirestore());
-  }
-}
-
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
@@ -123,7 +111,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'SafePrint',
+      title: 'SAFEPRINT',
       theme: ThemeData(
         textTheme: GoogleFonts.spaceGroteskTextTheme(),
         colorScheme: ColorScheme.fromSeed(seedColor: brandColor),
@@ -168,12 +156,6 @@ class _CapturePageState extends State<CapturePage> {
         setState(() {
           _captured.insert(0, record);
         });
-
-        try {
-          await FirebaseCaptureRepository.save(record);
-        } catch (_) {
-          // Keep local capture working even if Firestore write fails.
-        }
       },
       onError: (Object error) {},
     );

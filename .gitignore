@@ -46,6 +46,7 @@ app.*.map.json
 
 # Firebase / Android secrets
 android/app/google-services.json
+android/app/*firebase-adminsdk*.json
 android/key.properties
 **/*.jks
 **/*.keystore
