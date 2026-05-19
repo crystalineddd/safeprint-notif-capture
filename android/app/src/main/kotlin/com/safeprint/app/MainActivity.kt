@@ -1,8 +1,12 @@
 package com.safeprint.app
 
+import android.Manifest
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.provider.Settings
+import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
@@ -11,6 +15,8 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterActivity() {
     private val methodChannelName = "gcash_capture/methods"
     private val eventChannelName = "gcash_capture/events"
+    private val postNotificationsRequestCode = 2001
+    private var pendingNotificationPermissionResult: MethodChannel.Result? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -28,8 +34,38 @@ class MainActivity : FlutterActivity() {
                         result.success(hasNotificationListenerAccess())
                     }
 
+                    "isAppNotificationPermissionGranted" -> {
+                        result.success(hasAppNotificationPermission())
+                    }
+
+                    "requestAppNotificationPermission" -> {
+                        requestAppNotificationPermission(result)
+                    }
+
                     "loadSavedNotifications" -> {
-                        result.success(loadSavedNotifications())
+                        result.success(NotificationCaptureService.loadSavedNotifications(this))
+                    }
+
+                    "isCaptureEnabled" -> {
+                        result.success(NotificationCaptureService.isCaptureEnabled(this))
+                    }
+
+                    "setCaptureEnabled" -> {
+                        val enabled = call.argument<Boolean>("enabled") ?: true
+                        if (enabled) {
+                            NotificationCaptureService.requestListenerResume(this)
+                        } else {
+                            NotificationCaptureService.setCaptureEnabled(this, false)
+                            startService(Intent(this, NotificationCaptureService::class.java).apply {
+                                action = "com.safeprint.app.action.STOP_CAPTURE"
+                            })
+                        }
+                        result.success(true)
+                    }
+
+                    "syncSavedNotificationsToFirebase" -> {
+                        NotificationCaptureService.syncSavedNotificationsToFirebase(this)
+                        result.success(true)
                     }
 
                     else -> result.notImplemented()
@@ -49,84 +85,50 @@ class MainActivity : FlutterActivity() {
         return enabled.contains(packageName)
     }
 
-    private fun loadSavedNotifications(): List<Map<String, Any>> {
-        val prefs = getSharedPreferences("gcash_notifications", Context.MODE_PRIVATE)
-        val notifications = mutableListOf<Map<String, Any>>()
-
-        prefs.all.forEach { (key, value) ->
-            if (key.startsWith("notification_") && value is String) {
-                try {
-                    val map = parseJson(value)
-                    notifications.add(map)
-                } catch (e: Exception) {
-                    // Skip malformed entries
-                }
-            }
+    private fun hasAppNotificationPermission(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            return true
         }
 
-        // Sort by timestamp, newest first
-        notifications.sortByDescending { (it["timestampEpochMs"] as? Number)?.toLong() ?: 0L }
-        return notifications.take(50) // Return last 50
+        return ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.POST_NOTIFICATIONS
+        ) == PackageManager.PERMISSION_GRANTED
     }
 
-    private fun parseJson(json: String): Map<String, Any> {
-        val map = mutableMapOf<String, Any>()
-        val content = json.trim().removeSurrounding("{", "}")
-        val pairs = parseJsonPairs(content)
-        
-        pairs.forEach { (key, value) ->
-            when {
-                value.startsWith("\"") && value.endsWith("\"") -> 
-                    map[key] = value.substring(1, value.length - 1)
-                        .replace("\\\"", "\"")
-                value == "true" -> map[key] = true
-                value == "false" -> map[key] = false
-                value.toLongOrNull() != null -> map[key] = value.toLong()
-                value.toDoubleOrNull() != null -> map[key] = value.toDouble()
-                else -> map[key] = value
-            }
+    private fun requestAppNotificationPermission(result: MethodChannel.Result) {
+        if (hasAppNotificationPermission()) {
+            result.success(true)
+            return
         }
-        return map
+
+        if (pendingNotificationPermissionResult != null) {
+            result.error(
+                "permission_request_in_progress",
+                "A notification permission request is already in progress.",
+                null
+            )
+            return
+        }
+
+        pendingNotificationPermissionResult = result
+        requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), postNotificationsRequestCode)
     }
 
-    private fun parseJsonPairs(content: String): List<Pair<String, String>> {
-        val pairs = mutableListOf<Pair<String, String>>()
-        var current = 0
-        var inString = false
-        var keyStart = -1
-        var colonPos = -1
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
 
-        while (current < content.length) {
-            val char = content[current]
-            
-            when {
-                char == '"' && (current == 0 || content[current - 1] != '\\') -> 
-                    inString = !inString
-                char == ':' && !inString && keyStart >= 0 && colonPos < 0 ->
-                    colonPos = current
-                char == ',' && !inString && keyStart >= 0 && colonPos >= 0 -> {
-                    val key = content.substring(keyStart, colonPos)
-                        .trim()
-                        .removeSurrounding("\"")
-                    val value = content.substring(colonPos + 1, current).trim()
-                    pairs.add(key to value)
-                    keyStart = -1
-                    colonPos = -1
-                }
-                !char.isWhitespace() && keyStart < 0 && !inString ->
-                    keyStart = current
-            }
-            current++
+        if (requestCode != postNotificationsRequestCode) {
+            return
         }
 
-        if (keyStart >= 0 && colonPos >= 0) {
-            val key = content.substring(keyStart, colonPos)
-                .trim()
-                .removeSurrounding("\"")
-            val value = content.substring(colonPos + 1).trim()
-            pairs.add(key to value)
-        }
-
-        return pairs
+        val granted = grantResults.isNotEmpty() &&
+            grantResults[0] == PackageManager.PERMISSION_GRANTED
+        pendingNotificationPermissionResult?.success(granted)
+        pendingNotificationPermissionResult = null
     }
 }
