@@ -415,7 +415,7 @@ class _CapturePageState extends State<CapturePage> with WidgetsBindingObserver {
       return 'Notification access is enabled, but background listening is paused. Resume it to show the pinned listener notification again.';
     }
 
-    return 'Notification access is enabled. SafePrint keeps a pinned Android notification while it listens and uploads captures to Firebase.';
+    return 'Notification access is enabled. SafePrint keeps a pinned Android notification while it listens and uploads captures to the server.';
   }
 
   Color get _statusBackgroundColor {
