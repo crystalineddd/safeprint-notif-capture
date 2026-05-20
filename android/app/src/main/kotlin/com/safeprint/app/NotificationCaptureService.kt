@@ -15,6 +15,7 @@ import androidx.core.app.NotificationCompat
 import com.google.firebase.FirebaseApp
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.SetOptions
 import io.flutter.plugin.common.EventChannel
 import org.json.JSONObject
 import java.util.ArrayDeque
@@ -56,6 +57,7 @@ class NotificationCaptureService : NotificationListenerService() {
         private const val prefsName = "gcash_notifications"
         private const val captureEnabledKey = "capture_enabled"
         private const val notificationKeyPrefix = "capture_"
+        private const val uploadStateKeyPrefix = "upload_state_"
         private const val notificationChannelId = "capture_listener_status"
         private const val notificationId = 4041
         private const val stopAction = "com.safeprint.app.action.STOP_CAPTURE"
@@ -125,6 +127,7 @@ class NotificationCaptureService : NotificationListenerService() {
 
             val isParsed = payload["isParsed"] as? Boolean ?: false
             if (!isParsed) {
+                clearUploadState(context, documentId)
                 deleteNotificationFromFirebase(context, documentId)
                 return
             }
@@ -135,13 +138,21 @@ class NotificationCaptureService : NotificationListenerService() {
                 // Firebase may already be initialized.
             }
 
-            val firestorePayload = payload.toMutableMap<String, Any>()
+            val firestorePayload = NotificationSyncPayload.toFirestorePayload(payload).toMutableMap()
+            val payloadSignature = NotificationSyncPayload.uploadSignature(firestorePayload)
+            if (hasUploadedCurrentPayload(context, documentId, payloadSignature)) {
+                return
+            }
+
             firestorePayload["capturedAt"] = FieldValue.serverTimestamp()
 
             FirebaseFirestore.getInstance()
                 .collection("gcash_notifications")
                 .document(documentId)
-                .set(firestorePayload)
+                .set(firestorePayload, SetOptions.merge())
+                .addOnSuccessListener {
+                    markPayloadUploaded(context, documentId, payloadSignature)
+                }
         }
 
         private fun deleteNotificationFromFirebase(context: Context, documentId: String) {
@@ -201,6 +212,29 @@ class NotificationCaptureService : NotificationListenerService() {
         private fun isGcashPackageName(packageName: String): Boolean {
             return packageName == "com.globe.gcash.android" ||
                 packageName == "com.globe.gcash"
+        }
+
+        private fun hasUploadedCurrentPayload(
+            context: Context,
+            documentId: String,
+            payloadSignature: String
+        ): Boolean {
+            val prefs = context.getSharedPreferences(prefsName, Context.MODE_PRIVATE)
+            return prefs.getString("$uploadStateKeyPrefix$documentId", null) == payloadSignature
+        }
+
+        private fun markPayloadUploaded(context: Context, documentId: String, payloadSignature: String) {
+            context.getSharedPreferences(prefsName, Context.MODE_PRIVATE)
+                .edit()
+                .putString("$uploadStateKeyPrefix$documentId", payloadSignature)
+                .apply()
+        }
+
+        private fun clearUploadState(context: Context, documentId: String) {
+            context.getSharedPreferences(prefsName, Context.MODE_PRIVATE)
+                .edit()
+                .remove("$uploadStateKeyPrefix$documentId")
+                .apply()
         }
 
         private fun containsPaymentReceiptMarker(text: String): Boolean {

@@ -60,6 +60,7 @@ android {
 dependencies {
     implementation(platform("com.google.firebase:firebase-bom:33.15.0"))
     implementation("com.google.firebase:firebase-firestore-ktx")
+    testImplementation("junit:junit:4.13.2")
 }
 
 flutter {

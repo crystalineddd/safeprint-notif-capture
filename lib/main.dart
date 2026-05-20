@@ -115,6 +115,18 @@ class NotificationCaptureRecord {
     return '(unknown)';
   }
 
+  static bool _isClaimed(Map<dynamic, dynamic> map) {
+    return
+        (map['isClaimed'] as bool?) ??
+        (map['claimed'] as bool?) ??
+        (map['is_claimed'] as bool?) ??
+        ((map['claimed_by_cid']?.toString().trim().isNotEmpty ?? false) ||
+            (map['claimed_by_intent_id']?.toString().trim().isNotEmpty ??
+                false) ||
+            map['claimed_at'] != null ||
+            map['claimedAt'] != null);
+  }
+
   factory NotificationCaptureRecord.fromMap(
     Map<dynamic, dynamic> map, {
     String? documentId,
@@ -136,14 +148,7 @@ class NotificationCaptureRecord {
       number: (map['number']?.toString() ?? '').trim(),
       isParsed: (map['isParsed'] as bool?) ?? false,
       isUploadedToFirebase: isUploadedToFirebase,
-      isClaimed:
-          (map['isClaimed'] as bool?) ??
-          (map['claimed'] as bool?) ??
-          (map['is_claimed'] as bool?) ??
-          ((map['claimed_by_cid']?.toString().trim().isNotEmpty ?? false) ||
-            (map['claimed_by_intent_id']?.toString().trim().isNotEmpty ??
-              false) ||
-            map['claimedAt'] != null),
+      isClaimed: _isClaimed(map),
       rawText: (map['rawText']?.toString() ?? '').trim(),
       packageName: (map['packageName']?.toString() ?? '').trim(),
       title: (map['title']?.toString() ?? '').trim(),

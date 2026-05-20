@@ -1,30 +1,35 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:notif_capture/main.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+  test('detects claimed records from server claim fields', () {
+    final record = NotificationCaptureRecord.fromMap({
+      'documentId': 'doc-1',
+      'timestampEpochMs': 1710000000000,
+      'claimed_by_cid': 'server-cid',
+    });
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+    expect(record.isClaimed, isTrue);
+  });
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
+  test('detects claimed_at snake_case records', () {
+    final record = NotificationCaptureRecord.fromMap({
+      'documentId': 'doc-2',
+      'timestampEpochMs': 1710000000000,
+      'claimed_at': '2026-05-20T09:15:00Z',
+    });
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    expect(record.isClaimed, isTrue);
+  });
+
+  test('does not mark unclaimed records as claimed', () {
+    final record = NotificationCaptureRecord.fromMap({
+      'documentId': 'doc-3',
+      'timestampEpochMs': 1710000000000,
+      'amount': 'P100.00',
+    });
+
+    expect(record.isClaimed, isFalse);
   });
 }
